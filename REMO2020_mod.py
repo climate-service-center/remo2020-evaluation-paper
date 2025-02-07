@@ -197,70 +197,6 @@ def cut_rotated(extent,pole):
     return min_lon,max_lon,min_lat,max_lat
 ############################################################################################
 ############################################################################################ 
-def cut_rotated_latlon(extent,pole):
-    #
-    import cartopy.crs as ccrs
-    #
-    # Cut maximum domain from rotated data based on lon/lat box
-    data_crs = ccrs.RotatedPole(*pole)
-     # western top gives lon_min
-    min_lon, tmp_lat = data_crs.transform_point(extent[0], extent[3], src_crs=ccrs.PlateCarree())
-    # norther central gives lat_max
-    tmp_lon, max_lat = data_crs.transform_point((extent[0]+extent[1])/2., extent[3], src_crs=ccrs.PlateCarree())
-    # easter top gives lon_max
-    max_lon, tmp_lat = data_crs.transform_point(extent[1], extent[3], src_crs=ccrs.PlateCarree())
-    # southern bottom gives lat_min
-    tmp_lon, min_lat = min([data_crs.transform_point(extent[0], extent[2], src_crs=ccrs.PlateCarree()),data_crs.transform_point(extent[1], extent[2], src_crs=ccrs.PlateCarree())])
-    #
-    return min_lon,max_lon,min_lat,max_lat
-
-
-############################################################################################
-############################################################################################ 
-# next some from Dr. L. Buntemeyer
-# https://github.com/regionmask/regionmask/issues/529#issuecomment-2486162378
-def create_polygon(ll_lon, ll_lat, ur_lon, ur_lat, pole):
-    """create polygon and crs from domain corner points and pole"""
-    # corner points of the domain
-    coords = (
-        (ll_lon, ll_lat),
-        (ll_lon, ur_lat),
-        (ur_lon, ur_lat),
-        (ur_lon, ll_lat),
-        (ll_lon, ll_lat),
-    )
-    # i go via from_cf to get the correct crs
-    crs_attrs = {
-        "grid_mapping_name": "rotated_latitude_longitude",
-        "grid_north_pole_latitude": pole[1],
-        "grid_north_pole_longitude": pole[0],
-        "north_pole_grid_longitude": 0.0,
-    }
-    # proj4 = f"+proj=ob_tran +o_proj=longlat +o_lon_p=0 +o_lat_p={dm.pollat} +lon_0={180+dm.pollon} +datum=WGS84 +no_defs +type=crs"
-    return Polygon(coords), CRS.from_cf(crs_attrs)
-#
-def transform_polygon(polygon, crs, segmentize=None):
-    """segmentize and transform polygon to lat/lon"""
-    transformer = Transformer.from_proj(crs, pyproj.Proj(init="epsg:4326"))
-    if segmentize:
-        polygon = polygon.segmentize(segmentize)
-    return transform(transformer.transform, polygon)
-############################################################################################
-############################################################################################ 
-def prepare_rotated_mask(extent,pole,lon,lat):
-    #
-    data_crs = ccrs.RotatedPole(*pole)
-    # get coordinates of the extent in the target projection
-    ll_lon, ur_lon, ll_lat, ur_lat = cut_rotated(extent,pole)
-    # get polygon
-    polygon, crs = create_polygon(ll_lon, ll_lat, ur_lon, ur_lat,pole)
-    # create regionmask
-    regmask = regionmask.Regions({transform_polygon(polygon, crs, segmentize=1.0)})
-    # create mask in lot/lat
-    maskout = regmask.mask(lon,lat)
-    return maskout, ll_lon, ur_lon, ll_lat, ur_lat
-############################################################################################
-############################################################################################ 
 def open_snowcci_swemon(snCCidata,trggrid,ystart,yend):
     # Create target grid
     target_grid = get_domain(trggrid)
@@ -852,49 +788,6 @@ def clara_plotter_seas_wera5(absplotc,modplotc,domaininfo,pole,modelruns,abs_sou
     
     # Add a colorbar axis at the bottom of the graph
     cbar_ax = fig.add_axes([0.2, bbox.y0-(bbox.y1-bbox.y0)*0.25, 0.6, 0.01]) # set the y-value to be 0.25 time of total height below the y0
-
-    # Draw the colorbar
-    cbar=fig.colorbar(sbl, cax=cbar_ax,orientation='horizontal')
-    cbar.set_label(modplotc.label, fontsize=24)
-    plt.savefig(figpath+figname+'.png',format="png",bbox_inches='tight', pad_inches=0)
-############################################################################################
-############################################################################################
-def remo_AV_plotter(modplotc,domaininfo,modelruns,seasons,pole,lshade,figpath,figname):
-    #
-    # set some plotting parameters
-    mpl.rcParams.update(mpl.rcParamsDefault)
-    plt.rcParams["figure.figsize"] = (20, (len(modelruns)-1)*5.5)
-    plt.rcParams["figure.subplot.hspace"] = domaininfo.hspace # the amount of height reserved for white space between subplots
-    plt.rcParams["figure.subplot.wspace"] = domaininfo.wspace # the amount of width reserved for blank space between subplots
-    plt.rcParams["axes.titlesize"] = 24
-    plt.rcParams['axes.labelsize'] = 18
-    plt.rcParams["text.usetex"] = True
-    plt.rcParams["font.family"] = 'serif'
-    plt.rcParams["xtick.labelsize"] = 20
-    plt.rcParams["ytick.labelsize"] = 20
-    plt.rcParams["legend.fontsize"] = 24
-    fig, axes = plt.subplots(ncols=4, nrows=(len(modelruns)-1),subplot_kw={"projection": ccrs.RotatedPole(*pole)})
-    # Adjust the location of the subplots on the page to make room for the colorbar
-    fig.subplots_adjust(bottom=0.15, top=1.0, left=0, right=1.0)
-    #
-    for mod in range(1,len(modelruns)):
-        for ind in range(len(seasons)):
-            min_lon,max_lon,min_lat,max_lat = cut_rotated(extent=domaininfo.extent,pole=pole)
-            mean_tmp = modelruns[mod].vardiff.sel(season=seasons[ind]).sel(rlat=slice(min_lat,max_lat), rlon=slice(min_lon,max_lon))
-            weight = np.cos(np.deg2rad(mean_tmp.rlat))
-            meani = mean_tmp.weighted(weight).mean(dim=("rlat", "rlon"))
-            title = modelruns[mod].runame+" "+seasons[ind]+"\n Mean="+"{:.2f}".format(meani)
-            if(lshade):
-                mask_tmp = modelruns[mod].mask[ind].sel(rlat=slice(min_lat,max_lat), rlon=slice(min_lon,max_lon))
-            else:
-                mask_tmp = modelruns[mod].mask[ind]
-            sbl=main_plotter(modplotc,modplotc,mean_tmp,mask_tmp,labs=False,
-                        axin=axes[mod-1,ind],transform = ccrs.RotatedPole(*pole),
-                        vmin=-1, vmax=1, xlocs=domaininfo.xlocs, ylocs=domaininfo.ylocs, title = title, 
-                        extent = domaininfo.extent,lshade=lshade)
-    
-    # Add a colorbar axis at the bottom of the graph
-    cbar_ax = fig.add_axes([0.2, 0.1, 0.6, 0.02])
 
     # Draw the colorbar
     cbar=fig.colorbar(sbl, cax=cbar_ax,orientation='horizontal')
