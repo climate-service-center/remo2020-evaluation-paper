@@ -5,21 +5,17 @@ import numpy as np
 import xarray as xr
 import pyremo as pr
 import xesmf as xe
-import cmaps
 import datetime
-from scipy import stats
 import cartopy.crs as ccrs
 import matplotlib as mpl
 import glob
 import matplotlib.pyplot as plt
-import matplotlib.gridspec as gridspec
 from matplotlib.colors import ListedColormap
 import cartopy.feature as cf
 import regionmask
 from shapely.geometry import Polygon
 from shapely.ops import transform
 from pyproj import CRS, Transformer
-import geopandas as gpd
 import pyproj
 ############################################################################################
 ############################################################################################
@@ -195,6 +191,51 @@ def cut_rotated(extent,pole):
     tmp_lon, min_lat = data_crs.transform_point((extent[0]+extent[1])/2., extent[2], src_crs=ccrs.PlateCarree())
     #
     return min_lon,max_lon,min_lat,max_lat
+############################################################################################
+############################################################################################ 
+# next some from Dr. L. Buntemeyer - GERICS
+# https://github.com/regionmask/regionmask/issues/529#issuecomment-2486162378
+def create_polygon(ll_lon, ll_lat, ur_lon, ur_lat, pole):
+    """create polygon and crs from domain corner points and pole"""
+    # corner points of the domain
+    coords = (
+        (ll_lon, ll_lat),
+        (ll_lon, ur_lat),
+        (ur_lon, ur_lat),
+        (ur_lon, ll_lat),
+        (ll_lon, ll_lat),
+    )
+    # i go via from_cf to get the correct crs
+    crs_attrs = {
+        "grid_mapping_name": "rotated_latitude_longitude",
+        "grid_north_pole_latitude": pole[1],
+        "grid_north_pole_longitude": pole[0],
+        "north_pole_grid_longitude": 0.0,
+    }
+    return Polygon(coords), CRS.from_cf(crs_attrs)
+#
+def transform_polygon(polygon, crs, segmentize=None):
+    """segmentize and transform polygon to lat/lon"""
+    transformer = Transformer.from_proj(crs, pyproj.Proj(init="epsg:4326"))
+    if segmentize:
+        polygon = polygon.segmentize(segmentize)
+    return transform(transformer.transform, polygon)
+############################################################################################
+############################################################################################ 
+def prepare_rotated_mask(extent,pole,lon,lat):
+    #
+    data_crs = ccrs.RotatedPole(*pole)
+    # get coordinates of the extent in the target projection
+    ll_lon, ur_lon, ll_lat, ur_lat = cut_rotated(extent,pole)
+    # get polygon
+    polygon, crs = create_polygon(ll_lon, ll_lat, ur_lon, ur_lat,pole)
+    # create regionmask
+    regmask = regionmask.Regions({transform_polygon(polygon, crs, segmentize=1.0)})
+    # create mask in lot/lat
+    maskout = regmask.mask(lon,lat)
+    return maskout, ll_lon, ur_lon, ll_lat, ur_lat
+############################################################################################
+############################################################################################ 
 ############################################################################################
 ############################################################################################ 
 def open_snowcci_swemon(snCCidata,trggrid,ystart,yend):
