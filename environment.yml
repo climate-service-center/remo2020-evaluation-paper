@@ -1,0 +1,17 @@
+name: kernelR2020
+channels:
+  - conda-forge
+dependencies:
+  - ipykernel
+  - python=3.10
+  - matplotlib
+  - cartopy
+  - pyremo
+  - ca-certificates
+  - openssl
+  - dask
+  - certifi
+  - cmaps
+  - netcdf4
+  - h5netcdf
+  - regionmask
